@@ -12,17 +12,17 @@ import java.util.Map;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.util.StringUtils;
 
 @Configuration
 @EnableScheduling
 public class HeartBeat {
 
-	public static Map<String, String> urlMap = new HashMap<String, String>(); // urlMap
 	public static Map<String, Integer> countMap = new HashMap<String, Integer>(); // 计数Map
 	
-	public static void main(String[] args) {
-		System.out.println(loadJSON("http://xiaoyutest.fise-wi.com:8080/xiaoyu/"));
-	}
+//	public static void main(String[] args) {
+//		System.out.println(loadJSON("http://xiaoyutest.fise-wi.com:8080/xiaoyu/"));
+//	}
 
 	@Scheduled(cron = "0 0/5 * * * ?") // 每5分钟执行一次
 	public void scheduler() {
@@ -31,20 +31,18 @@ public class HeartBeat {
 
 	// 心跳监测方法
 	public static void heartBeat() {
-		if (urlMap.size() == 0) {
-			initUrlMap(urlMap);
-		}
 		if (countMap.size() == 0) {
 			initCountMap(countMap);
 		}
 		// 遍历url
-		for (Map.Entry<String, String> entry : urlMap.entrySet()) {
-//			System.out.println(entry.getKey() + ":" + entry.getValue() + ":" + loadJSON(entry.getValue()));
-			String result = null;
-			// 尝试请求3次,如果result不是"helloworld"继续请求
+		for (SystemEnums item : SystemEnums.values()) {
+			String result1 = null;
+			String result2 = null;
+			String name = item.getName();
+			// 后端尝试请求3次,如果result1不是"helloworld"继续请求
 			for (int i = 0; i < 3; i++) {
-				result = loadJSON(entry.getValue());
-				if ("helloworld".equals(result)) {
+				result1 = loadJSON(item.getHeartbeat());				
+				if ("helloworld".equals(result1)) {
 					break;
 				}
 				try {
@@ -53,54 +51,51 @@ public class HeartBeat {
 					e.printStackTrace();
 				}
 			}
-			// 如果result不是"helloworld",并且发送次数少于2次
-			if (!"helloworld".equals(result) && countMap.get(entry.getKey()) < 2) {
+			// 前端尝试请求3次,如果result2是空值继续请求
+			for (int i = 0; i < 3; i++) {
+				result2 = loadJSON(item.getUrl());				
+				if (!StringUtils.isEmpty(result2)) {
+					break;
+				}
 				try {
-					EmailUtil.sendEmail(entry.getKey() + "红色警报",
-							"<h2><font color='red'>红色警报!  <a href=" + SystemEnums.getUrl(entry.getKey()) + ">" + entry.getKey() + "</a>异常!  请速速处理!</font></h2>");
-					countMap.put(entry.getKey(), countMap.get(entry.getKey()) + 1);
+					Thread.sleep(10000);
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+			// 如果result1不是"helloworld"或者 result2是空值,并且发送次数少于2次
+			if ((StringUtils.isEmpty(result2) || !"helloworld".equals(result1)) && countMap.get(name) < 2) {
+				try {
+					EmailUtil.sendEmail(name + "红色警报",
+							"<h2><a href=\"" + item.getUrl() + "\"><font color=\"red\">红色警报!" + name + "异常!请速速处理!</font></a></h2>");
+					countMap.put(name, countMap.get(name) + 1);
 					
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
-				 try {
-					Runtime.getRuntime().exec("/home/fise/bin/alarm_report.py " + SystemEnums.getAlarm(entry.getKey()));
+				try {
+					Runtime.getRuntime().exec("/home/fise/bin/alarm_report.py " + item.getAlarm());
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
-				// Sms.sendSMS("13128726 378", entry.getKey() + "系统异常报告", false);
+				// Sms.sendSMS("13128726 378", name + "系统异常报告", false);
 			}
-			// 如果result是"helloworld",并且发送次数大于0次,则发送邮件提示和发送次数初始化为0
-			if ("helloworld".equals(result) && countMap.get(entry.getKey()) > 0) {
+			// 如果result是"helloworld",同时result2不是是空值,并且发送次数大于0次,则发送邮件提示和发送次数初始化为0
+			if (!StringUtils.isEmpty(result2) && "helloworld".equals(result1) && countMap.get(name) > 0) {
 				try {
-					EmailUtil.sendEmail(entry.getKey() + "友情提示", "<h2><font color='green'><a href=" + SystemEnums.getUrl(entry.getKey()) + ">" + entry.getKey() + "</a>恢复正常</font></h2>");
+					EmailUtil.sendEmail(name + "友情提示", "<h2><a href=\"" + item.getUrl() + "\"><font color=\"green\">" + name + "恢复正常</font></a></h2>");
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 				try {
-					Runtime.getRuntime().exec("/home/fise/bin/alarm_report.py " + SystemEnums.getSuccess(entry.getKey()));
+					Runtime.getRuntime().exec("/home/fise/bin/alarm_report.py " + item.getSuccess());
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
-				countMap.put(entry.getKey(), 0);
+				countMap.put(name, 0);
 			}
 
 		}
-	}
-
-	// 初始化urlMap
-	public static Map<String, String> initUrlMap(Map<String, String> urlMap) {
-
-		urlMap.put("小位开发系统", "http://10.252.252.250:8787/managesvr/heartbeat/helloworld");
-		urlMap.put("小位测试系统", "http://file.fise-wi.com:8787/managesvr/heartbeat/helloworld");
-		urlMap.put("小位生产系统", "http://file.fise-wi.com:8589/managesvr/heartbeat/helloworld");
-		urlMap.put("猫我开发系统", "http://10.252.252.250:8787/xiaoyusvr/heartbeat/helloworld");
-		urlMap.put("猫我测试系统", "http://xiaoyutest.fise-wi.com:8787/xiaoyusvr/heartbeat/helloworld");
-		urlMap.put("猫我生产系统", "http://xiaoyu.fise-wi.com:8787/xiaoyusvr/heartbeat/helloworld");
-		urlMap.put("物联开发系统", "http://10.252.252.250:8787/iot/heartbeat/helloworld");
-		urlMap.put("物联测试系统", "http://39.108.17.123:8787/iot/heartbeat/helloworld");
-		return urlMap;
-
 	}
 
 	// 初始化计数Map
